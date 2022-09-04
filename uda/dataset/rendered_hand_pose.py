@@ -3,7 +3,7 @@ import os
 import pickle
 
 from utils._util import download as download_data, check_exits
-from marsda.dataset.keypoint_detection import *
+from uda.dataset.keypoint_detection import *
 from .keypoint_dataset import Hand21KeypointDataset
 from .util import *
 
