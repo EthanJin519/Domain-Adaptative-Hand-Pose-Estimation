@@ -5,7 +5,7 @@
 
 
 import torch.nn as nn
-from marsda.model.resnet import _resnet, Bottleneck
+from uda.model.resnet import _resnet, Bottleneck
 
 
 class Upsampling(nn.Sequential):
