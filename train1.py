@@ -15,16 +15,16 @@ from torchvision.transforms import Compose, ToPILImage
 import torch.nn.functional as F
 
 #sys.path.append('../../..')
-from marsda.model.regda_4 import PoseResNet as RegDAPoseResNet, \
+from uda.model.regda_4 import PoseResNet as RegDAPoseResNet, \
     PseudoLabelGenerator, RegressionDisparity4, PoseResNet3 as RegDAPoseResNet3, PoseResNet2 as RegDAPoseResNet2, RegressionDisparity3
 
-from marsda.model.regda_7 import PoseResNetx9 as RegDAPoseResNetx1, PoseResNetx10 as RegDAPoseResNetx2, RegressionDisparityx1, RegressionDisparityx5, PseudoLabelGenerator03, PseudoLabelGenerator01, refineNet3, RegressionDisparity, RegressionDisparityx6
+from uda.model.regda_7 import PoseResNetx9 as RegDAPoseResNetx1, PoseResNetx10 as RegDAPoseResNetx2, RegressionDisparityx1, RegressionDisparityx5, PseudoLabelGenerator03, PseudoLabelGenerator01, refineNet3, RegressionDisparity, RegressionDisparityx6
 
-import marsda.model as models
-from marsda.model.pose_resnet2 import Upsampling, PoseResNet
-from marsda.model.loss import JointsKLLoss, update_ema_variables5, loss3
-import marsda.dataset as datasets
-import marsda.dataset.keypoint_detection as T
+import uda.model as models
+from uda.model.pose_resnet2 import Upsampling, PoseResNet
+from uda.model.loss import JointsKLLoss, update_ema_variables5, loss3
+import uda.dataset as datasets
+import uda.dataset.keypoint_detection as T
 from utils import Denormalize
 from utils.data import ForeverDataIterator
 from utils.meter import AverageMeter, ProgressMeter, AverageMeterDict
@@ -663,7 +663,7 @@ if __name__ == '__main__':
                         metavar='N', help='print frequency (default: 100)')
     parser.add_argument('--seed', default=1, type=int,
                         help='seed for initializing training. ')
-    parser.add_argument("--log", type=str, default='logs/mt97',
+    parser.add_argument("--log", type=str, default='logs/mt',
                         help="Where to save logs, checkpoints and debugging images.")
     parser.add_argument("--phase", type=str, default='train', choices=['train', 'test'],
                         help="When phase is 'test', only test the model.")
