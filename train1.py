@@ -6,6 +6,7 @@ import argparse
 import shutil
 
 import torch
+import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.optim import SGD
 from torch.optim.lr_scheduler import LambdaLR, MultiStepLR
@@ -16,6 +17,9 @@ import torch.nn.functional as F
 #sys.path.append('../../..')
 from marsda.model.regda_4 import PoseResNet as RegDAPoseResNet, \
     PseudoLabelGenerator, RegressionDisparity4, PoseResNet3 as RegDAPoseResNet3, PoseResNet2 as RegDAPoseResNet2, RegressionDisparity3
+
+from marsda.model.regda_7 import PoseResNetx9 as RegDAPoseResNetx1, PoseResNetx10 as RegDAPoseResNetx2, RegressionDisparityx1, RegressionDisparityx5, PseudoLabelGenerator03, PseudoLabelGenerator01, refineNet3, RegressionDisparity, RegressionDisparityx6
+
 import marsda.model as models
 from marsda.model.pose_resnet2 import Upsampling, PoseResNet
 from marsda.model.loss import JointsKLLoss, update_ema_variables5, loss3
@@ -101,7 +105,7 @@ def main(args: argparse.Namespace):
    #     backbone2 = models.__dict__[args.arch2]()
         upsampling = Upsampling(backbone.out_features)
         num_keypoints = train_source_dataset.num_keypoints
-        model_ema = RegDAPoseResNet2(backbone, upsampling, 256, num_keypoints, num_head_layers=args.num_head_layers, finetune=True).to(device)
+        model_ema = RegDAPoseResNetx2(backbone, upsampling, 256, num_keypoints, num_head_layers=args.num_head_layers, finetune=True).to(device)
         # pretrained_dict = torch.load(args.pretrain01, map_location='cpu')['model']
         # model.load_state_dict(pretrained_dict, strict=False)
       
@@ -120,14 +124,17 @@ def main(args: argparse.Namespace):
   #  backbone2 = models.__dict__[args.arch2]()
     upsampling = Upsampling(backbone.out_features)
     num_keypoints = train_source_dataset.num_keypoints
-    model = RegDAPoseResNet3(backbone, upsampling, 256, num_keypoints, num_head_layers=args.num_head_layers, finetune=True).to(device)
+    model = RegDAPoseResNetx1(backbone, upsampling, 256, num_keypoints, num_head_layers=args.num_head_layers, finetune=True).to(device)
     model_ema = creat_ema(model)
 
     # define loss function
     criterion = JointsKLLoss()
+    pseudo_label_generator03 = PseudoLabelGenerator03(num_keypoints)
+    pseudo_label_generator01 = PseudoLabelGenerator01(num_keypoints)
     pseudo_label_generator = PseudoLabelGenerator(num_keypoints, args.heatmap_size, args.heatmap_size)
-    regression_disparity = RegressionDisparity4(pseudo_label_generator, JointsKLLoss(epsilon=1e-7))
-    regression_disparity2 = RegressionDisparity3(pseudo_label_generator, JointsKLLoss(epsilon=1e-7))
+    regression_disparity = RegressionDisparityx6(pseudo_label_generator, JointsKLLoss(epsilon=1e-7))
+    regression_disparity2 = RegressionDisparityx5(pseudo_label_generator03, JointsKLLoss(epsilon=1e-7))
+    regression_disparity1 = RegressionDisparityx1(pseudo_label_generator01, JointsKLLoss(epsilon=1e-7))
 
 
     # define optimizer and lr scheduler
@@ -135,14 +142,16 @@ def main(args: argparse.Namespace):
         {'params': backbone.parameters(), 'lr': 0.1},
         {'params': upsampling.parameters(), 'lr': 0.1},
     ], lr=0.1, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
-    optimizer_h = SGD(model.head.parameters(), lr=1., momentum=args.momentum, weight_decay=args.wd, nesterov=True)
-    optimizer_h_adv = SGD(model.head_adv.parameters(), lr=1., momentum=args.momentum, weight_decay=args.wd, nesterov=True)
-    optimizer_h_adv2 = SGD(model.head_adv2.parameters(), lr=1., momentum=args.momentum, weight_decay=args.wd, nesterov=True)
+    optimizer_h = SGD(model.head.parameters(), lr=0.1, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
+    optimizer_h_adv = SGD(model.head_adv.parameters(), lr=0.1, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
+    optimizer_h_adv2 = SGD(model.head_adv2.parameters(), lr=0.1, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
+    optimizer_h_adv3 = SGD(model.head_adv3.parameters(), lr=0.1, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
     lr_decay_function = lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay)
     lr_scheduler_f = LambdaLR(optimizer_f, lr_decay_function)
     lr_scheduler_h = LambdaLR(optimizer_h, lr_decay_function)
     lr_scheduler_h_adv = LambdaLR(optimizer_h_adv, lr_decay_function)
     lr_scheduler_h_adv2 = LambdaLR(optimizer_h_adv2, lr_decay_function)
+    lr_scheduler_h_adv3 = LambdaLR(optimizer_h_adv3, lr_decay_function)
     start_epoch = 0
 
     if args.resume is None:
@@ -221,17 +230,17 @@ def main(args: argparse.Namespace):
     print("Start regression domain adaptation.")
     for epoch in range(start_epoch, args.epochs):
         logger.set_epoch(epoch)
-        print(lr_scheduler_f.get_lr(), lr_scheduler_h.get_lr(), lr_scheduler_h_adv.get_lr())
+        print(lr_scheduler_f.get_lr(), lr_scheduler_h.get_lr(), lr_scheduler_h_adv.get_lr(), lr_scheduler_h_adv2.get_lr())
 
         # train for one epoch
-        train(train_source_iter, train_target_iter, model, model_ema, criterion, regression_disparity, regression_disparity2,
-              optimizer_f, optimizer_h, optimizer_h_adv, optimizer_h_adv2, lr_scheduler_f, lr_scheduler_h, lr_scheduler_h_adv,
-              lr_scheduler_h_adv2, epoch, visualize if args.debug else None, args)
+        train(train_source_iter, train_target_iter, model, model_ema, criterion, regression_disparity, regression_disparity2, regression_disparity1,
+              optimizer_f, optimizer_h, optimizer_h_adv, optimizer_h_adv2, optimizer_h_adv3, lr_scheduler_f, lr_scheduler_h, lr_scheduler_h_adv,
+              lr_scheduler_h_adv2, lr_scheduler_h_adv3, epoch, visualize if args.debug else None, args)
 
         # evaluate on validation set
         source_val_acc = validate(val_source_loader, model, criterion, None, args)
         target_val_acc = validate(val_target_loader, model, criterion, visualize if args.debug else None, args)
-        target_val_acc2 = validate2(val_target_loader, model_ema, criterion, visualize, args)
+     #   target_val_acc2 = validate2(val_target_loader, model_ema, criterion, visualize, args)
 
 
 
@@ -258,7 +267,7 @@ def main(args: argparse.Namespace):
             shutil.copy(logger.get_checkpoint_path(epoch), logger.get_checkpoint_path('best'))
             best_acc = target_val_acc['all']
         print("Source: {:4.3f} Target: {:4.3f} Target(best): {:4.3f}".format(source_val_acc['all'], target_val_acc['all'], best_acc))
-        print("ema: {:4.3f}".format(target_val_acc2['all']))
+    #    print("ema: {:4.3f}".format(target_val_acc2['all']))
 
         for name, acc in target_val_acc.items():
             print("{}: {:4.3f}".format(name, acc))
@@ -316,9 +325,8 @@ def pretrain(train_source_iter, model, criterion, optimizer,
             progress.display(i)
 
 
-def train(train_source_iter, train_target_iter, model, model_ema, criterion,regression_disparity, regression_disparity2,
-          optimizer_f, optimizer_h, optimizer_h_adv, optimizer_h_adv2, lr_scheduler_f, lr_scheduler_h, lr_scheduler_h_adv,
-          lr_scheduler_h_adv2, epoch: int, visualize, args: argparse.Namespace):
+def train(train_source_iter, train_target_iter, model, model_ema, criterion, regression_disparity, regression_disparity2,regression_disparity1,
+          optimizer_f, optimizer_h, optimizer_h_adv, optimizer_h_adv2, optimizer_h_adv3, lr_scheduler_f, lr_scheduler_h,                                            lr_scheduler_h_adv, lr_scheduler_h_adv2, lr_scheduler_h_adv3, epoch: int, visualize, args: argparse.Namespace):
     batch_time = AverageMeter('Time', ':4.2f')
     data_time = AverageMeter('Data', ':3.1f')
     losses_s = AverageMeter('Loss (s)', ":.2e")
@@ -337,7 +345,7 @@ def train(train_source_iter, train_target_iter, model, model_ema, criterion,regr
 
     # switch to train mode
     model.train()
-    model_ema.eval()
+ #   model_ema.eval()
     end = time.time()
 
     m = 0.01 * epoch
@@ -365,29 +373,20 @@ def train(train_source_iter, train_target_iter, model, model_ema, criterion,regr
         optimizer_h.zero_grad()
         optimizer_h_adv.zero_grad()
         optimizer_h_adv2.zero_grad()
+        optimizer_h_adv3.zero_grad()
 
-        y_s, y_s_adv, y_s_adv2, f_s = model(x_s)
-        y_t, y_t_adv, y_t_adv2, f_t = model(x_t)
-        with torch.no_grad():
-             y_t2, y_t2_adv, y_t2_adv2 = model_ema(x_t_ema)
-        uv1 = compute_uv_from_heatmaps(y_t2_adv2, (64, 64))
-        uv2 = compute_uv_from_heatmaps(label_s, (64, 64))
- 
-        B, K, _, _ = y_t_adv2.shape
-        y0 = (y_t_adv2 / 10).clip(max=1., min=0.)
-        y0 = y0.reshape((B, K, -1))
-        y0 = F.log_softmax(y0, dim=-1)
-        Lo = torch.sum(y0, dim=-1)
-        los = torch.mean(y0)
+        tem = None
+
+        y_s, y_s_adv, y_s_adv2, y_s_adv3, f_s = model(x_s)
+        
+        
 
 
+        loss_s = 2 * criterion(y_s, label_s, weight_s) + \
+                 4 * regression_disparity2(y_s, y_s_adv2, tem, weight_s, mode='min') + \
+                 4 * regression_disparity(y_s, y_s_adv, tem, weight_s, mode='min') + \
+                 4 * regression_disparity1(y_s, y_s_adv3, weight_s, mode='min')
 
-        loss_s = 1*criterion(y_s_adv2, label_s, weight_s) + \
-                 6 * regression_disparity(y_s, y_s_adv, weight_s, mode='min') + \
-                 1 * regression_disparity(label_s, y_s, weight_s, mode='min') + \
-                 m * regression_disparity(y_t2_adv2, y_t_adv2, weight_t, mode='min') + \
-                 0.5 * criterion(f_s, f_t) - \
-                 0.05 * los
 
                  
         loss_s.backward()
@@ -395,21 +394,58 @@ def train(train_source_iter, train_target_iter, model, model_ema, criterion,regr
         optimizer_h.step()
         optimizer_h_adv.step()
         optimizer_h_adv2.step()
+        optimizer_h_adv3.step()
         
         
         # Step B train adv regressor to maximize regression disparity
 #        optimizer_h.zero_grad()
         optimizer_h_adv.zero_grad()
-        y_t, y_t_adv, y_t_adv2, f_t = model(x_t)
-        loss_ground_false = args.trade_off * regression_disparity2(y_t2_adv2, y_t_adv, y_t2, y_t, weight_t, mode='max')
+        optimizer_h_adv2.zero_grad()
+        optimizer_h_adv3.zero_grad()
+        y_t, y_t_adv, y_t_adv2, y_t_adv3, f_t = model(x_t)
+        
+        
+        loss1 = args.trade_off * regression_disparity1(y_t, y_t_adv3, weight_t, mode='max')
+        
+        upsample = nn.Upsample(size=64, mode='bilinear')
+        target = upsample(y_t_adv3.detach())
+        
+        upsample1 = nn.Upsample(size=64, mode='bilinear')
+        target1 = upsample1(y_t_adv2.detach())
+        
+        upsample0 = nn.Upsample(size=32, mode='bilinear')
+        target0 = upsample0(y_t_adv3.detach())
+        
+     #   print(target.shape)
+     #   print(target0.shape)
+     #   print(y_t_adv.shape)
+     #   print(y_t_adv2.shape)
+        
+        target5 = 0.5 * target + target1
+        
+        loss2 = args.trade_off * regression_disparity(y_t, y_t_adv, target5, weight_t, mode='max')
+        
+        loss3 = args.trade_off * regression_disparity2(y_t, y_t_adv2, target0, weight_t, mode='max') 
+        
+        loss_ground_false =  0.3 * loss1 + 1 * loss2 + 0.3 * loss3
+                            
+                            
         loss_ground_false.backward()
+        optimizer_h_adv2.step()
         optimizer_h_adv.step()
+        optimizer_h_adv3.step()
  #       optimizer_h.step()
 
         # Step C train feature extractor to minimize regression disparity
         optimizer_f.zero_grad()
-        y_t, y_t_adv, y_t_adv2, f_t = model(x_t)
-        loss_ground_truth = args.trade_off * regression_disparity(y_t, y_t_adv, weight_t, mode='min') 
+        y_t, y_t_adv, y_t_adv2, y_t_adv3, f_t = model(x_t)
+        
+        loss1 = args.trade_off * regression_disparity2(y_t, y_t_adv2, tem, weight_t, mode='min') 
+        loss2 = args.trade_off * regression_disparity(y_t, y_t_adv, tem, weight_t, mode='min')
+     #   loss3 = args.trade_off * regression_disparity1(y_t, y_t_adv3, weight_t, mode='min') 
+        
+        loss_ground_truth = 0.3 * loss1 + 1 * loss2
+        
         loss_ground_truth.backward()
         optimizer_f.step()
 
@@ -419,21 +455,22 @@ def train(train_source_iter, train_target_iter, model, model_ema, criterion,regr
         lr_scheduler_h.step()
         lr_scheduler_h_adv.step()
         lr_scheduler_h_adv2.step()
+        lr_scheduler_h_adv3.step()
 
         global_step += 1
-        update_ema_variables5(model, model_ema, args.ema_decay)
+    #    update_ema_variables5(model, model_ema, args.ema_decay)
 
         # measure accuracy and record loss
-        _, avg_acc_s, cnt_s, pred_s = accuracy(y_s_adv2.detach().cpu().numpy(),
+        _, avg_acc_s, cnt_s, pred_s = accuracy(y_s.detach().cpu().numpy(),
                                                label_s.detach().cpu().numpy())
         acc_s.update(avg_acc_s, cnt_s)
-        _, avg_acc_t, cnt_t, pred_t = accuracy(y_t_adv2.detach().cpu().numpy(),
+        _, avg_acc_t, cnt_t, pred_t = accuracy(y_t.detach().cpu().numpy(),
                                                label_t.detach().cpu().numpy())
         acc_t.update(avg_acc_t, cnt_t)
-        _, avg_acc_s_adv, cnt_s_adv, pred_s_adv = accuracy(y_s.detach().cpu().numpy(),
+        _, avg_acc_s_adv, cnt_s_adv, pred_s_adv = accuracy(y_s_adv.detach().cpu().numpy(),
                                                label_s.detach().cpu().numpy())
         acc_s_adv.update(avg_acc_s_adv, cnt_s)
-        _, avg_acc_t_adv, cnt_t_adv, pred_t_adv = accuracy(y_t.detach().cpu().numpy(),
+        _, avg_acc_t_adv, cnt_t_adv, pred_t_adv = accuracy(y_t_adv.detach().cpu().numpy(),
                                                label_t.detach().cpu().numpy())
         acc_t_adv.update(avg_acc_t_adv, cnt_t)
         losses_s.update(loss_s, cnt_s)
@@ -519,12 +556,12 @@ def validate2(val_loader, model, criterion, visualize, args: argparse.Namespace)
             weight = weight.to(device)
 
             # compute output
-            y, y_adv, y_adv2 = model(x)
-            loss = criterion(y_adv2, label, weight)
+            y, y_adv, y_adv2, y_adv3, f = model(x)
+            loss = criterion(y, label, weight)
 
             # measure accuracy and record loss
             losses.update(loss.item(), x.size(0))
-            acc_per_points, avg_acc, cnt, pred = accuracy(y_adv2.cpu().numpy(),
+            acc_per_points, avg_acc, cnt, pred = accuracy(y.cpu().numpy(),
                                                           label.cpu().numpy())
 
             group_acc = val_loader.dataset.group_accuracy(acc_per_points)
@@ -548,6 +585,8 @@ def update_ema_variables(model, ema_model, alpha, global_step):
         for ema_param, param in zip(ema_model.parameters(), model.parameters()):
             # ema_param.data.mul_(alpha).add_(1 - alpha, param.data)
             ema_param.data.mul_(alpha).add_(param.data, alpha=1 - alpha)
+            
+            
 
 if __name__ == '__main__':
     architecture_names = sorted(
@@ -563,9 +602,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Source Only for Keypoint Detection Domain Adaptation')
     # dataset parameters
     parser.add_argument('--source_root', default='data/RHD', help='root path of the source dataset')
-    parser.add_argument('--target_root', default='data/H3D', help='root path of the target dataset')
+    parser.add_argument('--target_root', default='data/STB', help='root path of the target dataset')
     parser.add_argument('-s', '--source', default='RenderedHandPose', help='source domain(s)')
-    parser.add_argument('-t', '--target', default='Hand3DStudio', help='target domain(s)')
+    parser.add_argument('-t', '--target', default='STB', help='target domain(s)')
     parser.add_argument('--resize-scale', nargs='+', type=float, default=(0.6, 1.3),
                         help='scale range for the RandomResizeCrop augmentation')
     parser.add_argument('--rotation', type=int, default=180,
@@ -602,7 +641,7 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--batch-size', default=32, type=int,
                         metavar='N',
                         help='mini-batch size (default: 32)')
-    parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+    parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                         metavar='LR', help='initial learning rate', dest='lr')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
@@ -634,4 +673,3 @@ if __name__ == '__main__':
                         help='ema variable decay rate (default: 0.999)')
     args = parser.parse_args()
     main(args)
-
