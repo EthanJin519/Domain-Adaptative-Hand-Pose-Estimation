@@ -602,9 +602,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Source Only for Keypoint Detection Domain Adaptation')
     # dataset parameters
     parser.add_argument('--source_root', default='data/RHD', help='root path of the source dataset')
-    parser.add_argument('--target_root', default='data/H3D', help='root path of the target dataset')
+    parser.add_argument('target_root', help='root path of the target dataset')
     parser.add_argument('-s', '--source', default='RenderedHandPose', help='source domain(s)')
-    parser.add_argument('-t', '--target', default='Hand3DStudio', help='target domain(s)')
+    parser.add_argument('-t', '--target', help='target domain(s)')
     parser.add_argument('--resize-scale', nargs='+', type=float, default=(0.6, 1.3),
                         help='scale range for the RandomResizeCrop augmentation')
     parser.add_argument('--rotation', type=int, default=180,
