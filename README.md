@@ -37,8 +37,8 @@
  
  1. Evaluate on real-world dataset (H3D or STB).
     ```
-    python test.py data/H3D -t Hand3DStudio --checkpoint  models/H3D_test_854.pth,
-    python test.py data/STB -t STB --checkpoint  models/STB_test_850.pth
+    python test.py data/H3D -t Hand3DStudio --checkpoint  models/H3D_best_754.pth,
+    python test.py data/STB -t STB --checkpoint  models/STB_best_750.pth
     ```
    
    
